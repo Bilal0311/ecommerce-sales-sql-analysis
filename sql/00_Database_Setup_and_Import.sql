@@ -1,16 +1,35 @@
-CREATE TABLE Customers (
+/*==============================================================
+E-COMMERCE SALES DATABASE
+Database Setup and Data Import
+SQL Server / T-SQL
+==============================================================*/
+
+USE EcommerceSalesDB;
+GO
+
+
+/*==============================================================
+1. CREATE TABLES
+==============================================================*/
+
+CREATE TABLE dbo.Customers
+(
     customer_id INT PRIMARY KEY,
     country VARCHAR(50),
     signup_date DATE
 );
 
-CREATE TABLE Products (
+
+CREATE TABLE dbo.Products
+(
     product_id INT PRIMARY KEY,
     product_name VARCHAR(100),
     category VARCHAR(50)
 );
 
-CREATE TABLE Orders (
+
+CREATE TABLE dbo.Orders
+(
     order_id INT PRIMARY KEY,
     customer_id INT,
     order_date DATE,
@@ -18,99 +37,14 @@ CREATE TABLE Orders (
 
     CONSTRAINT FK_Orders_Customers
         FOREIGN KEY (customer_id)
-        REFERENCES Customers(customer_id)
+        REFERENCES dbo.Customers(customer_id)
 );
 
-CREATE TABLE OrderItems (
-    order_id INT,
-    product_id INT,
-    quantity INT,
-    price DECIMAL(10,2),
 
-    CONSTRAINT PK_OrderItems
-        PRIMARY KEY (order_id, product_id),
-
-    CONSTRAINT FK_OrderItems_Orders
-        FOREIGN KEY (order_id)
-        REFERENCES Orders(order_id),
-
-    CONSTRAINT FK_OrderItems_Products
-        FOREIGN KEY (product_id)
-        REFERENCES Products(product_id)
-);
-
-SELECT TABLE_NAME
-FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_TYPE = 'BASE TABLE';
-
-
-SELECT 'Customers' AS TableName, COUNT(*) AS Row_Count
-FROM dbo.Customers
-
-UNION ALL
-
-SELECT 'Products', COUNT(*)
-FROM dbo.Products
-
-UNION ALL
-
-SELECT 'Orders', COUNT(*)
-FROM dbo.Orders
-
-UNION ALL
-
-SELECT 'OrderItems', COUNT(*)
-FROM dbo.OrderItems;
-
-BULK INSERT dbo.Customers
-FROM 'C:\Users\BILAL\OneDrive\Desktop\Projects\SQL\Dataset\customers.csv'
-WITH (
-    FIRSTROW = 2,
-    FIELDTERMINATOR = ',',
-    ROWTERMINATOR = '0x0a',
-    TABLOCK
-);
-
-SELECT COUNT(*) AS CustomerCount
-FROM dbo.Customers
-
-BULK INSERT dbo.Products
-FROM 'C:\Users\BILAL\OneDrive\Desktop\Projects\SQL\Dataset\products.csv'
-WITH (
-    FIRSTROW = 2,
-    FIELDTERMINATOR = ',',
-    ROWTERMINATOR = '0x0a',
-    TABLOCK
-);
-
-SELECT COUNT(*) AS ProductCount
-FROM dbo.Products;
-
-BULK INSERT dbo.Orders
-FROM 'C:\Users\BILAL\OneDrive\Desktop\Projects\SQL\Dataset\orders.csv'
-WITH (
-    FIRSTROW = 2,
-    FIELDTERMINATOR = ',',
-    ROWTERMINATOR = '0x0a',
-    TABLOCK
-);
-
-SELECT COUNT(*) AS OrderCount
-FROM dbo.Orders;
-
---this was an error, coz considered both order_id and Customer_id as primary keys, which was a mistake as in the data there is two records with same order_id,product_id but differentquantity and price
 /*
-BULK INSERT dbo.OrderItems
-FROM 'C:\Users\BILAL\OneDrive\Desktop\Projects\SQL\Dataset\order_items.csv'
-WITH (
-    FIRSTROW = 2,
-    FIELDTERMINATOR = ',',
-    ROWTERMINATOR = '0x0a',
-    TABLOCK
-);
+A surrogate OrderItemID is used as the primary key because the source
+data can contain multiple rows with the same order_id and product_id.
 */
--- droping the table as before it was created with two primary keys, which resulted in the error, so to allign with the data redsigning the database schema
-DROP TABLE dbo.OrderItems;
 
 CREATE TABLE dbo.OrderItems
 (
@@ -129,15 +63,71 @@ CREATE TABLE dbo.OrderItems
         REFERENCES dbo.Products(product_id)
 );
 
-BULK INSERT dbo.OrderItems
-FROM 'C:\Users\BILAL\OneDrive\Desktop\Projects\SQL\Dataset\order_items.csv'
-WITH (
+
+/*==============================================================
+2. VERIFY TABLE CREATION
+==============================================================*/
+
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE';
+
+
+/*==============================================================
+3. IMPORT CUSTOMERS
+Update file paths before executing.
+==============================================================*/
+
+BULK INSERT dbo.Customers
+FROM 'C:\path\to\customers.csv'
+WITH
+(
     FIRSTROW = 2,
     FIELDTERMINATOR = ',',
     ROWTERMINATOR = '0x0a',
     TABLOCK
 );
---had to create a staging table with no primary key, coz an issue arrised while importing the data, mismatch in the created table and the data importing(in the created table we added order_itemID but in the csv file there is no such column)
+
+
+/*==============================================================
+4. IMPORT PRODUCTS
+==============================================================*/
+
+BULK INSERT dbo.Products
+FROM 'C:\path\to\products.csv'
+WITH
+(
+    FIRSTROW = 2,
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '0x0a',
+    TABLOCK
+);
+
+
+/*==============================================================
+5. IMPORT ORDERS
+==============================================================*/
+
+BULK INSERT dbo.Orders
+FROM 'C:\path\to\orders.csv'
+WITH
+(
+    FIRSTROW = 2,
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '0x0a',
+    TABLOCK
+);
+
+
+/*==============================================================
+6. CREATE STAGING TABLE FOR ORDER ITEMS
+==============================================================*/
+
+/*
+The source CSV does not contain OrderItemID because it is generated
+by SQL Server. A staging table is therefore used to import the four
+source columns before transferring them into dbo.OrderItems.
+*/
 
 CREATE TABLE dbo.OrderItems_Staging
 (
@@ -147,32 +137,43 @@ CREATE TABLE dbo.OrderItems_Staging
     price DECIMAL(10,2)
 );
 
+
 BULK INSERT dbo.OrderItems_Staging
-FROM 'C:\Users\BILAL\OneDrive\Desktop\Projects\SQL\Dataset\order_items.csv'
-WITH (
+FROM 'C:\path\to\order_items.csv'
+WITH
+(
     FIRSTROW = 2,
     FIELDTERMINATOR = ',',
     ROWTERMINATOR = '0x0a',
     TABLOCK
 );
 
-SELECT COUNT(*) AS StagingCount
-FROM dbo.OrderItems_Staging;
 
---Step 4 — Validate before moving the data
---First, let's check whether the foreign-key values are valid.
---Check 1: Every order_id exists in Orders
+/*==============================================================
+7. VALIDATE STAGED DATA
+==============================================================*/
+
+-- Check for order IDs that do not exist in Orders
+
 SELECT COUNT(*) AS InvalidOrders
-FROM dbo.OrderItems_Staging s
-LEFT JOIN dbo.Orders o
-    ON s.order_id = o.order_id
-WHERE o.order_id IS NULL;
+FROM dbo.OrderItems_Staging S
+LEFT JOIN dbo.Orders O
+    ON S.order_id = O.order_id
+WHERE O.order_id IS NULL;
+
+
+-- Check for product IDs that do not exist in Products
 
 SELECT COUNT(*) AS InvalidProducts
-FROM dbo.OrderItems_Staging s
-LEFT JOIN dbo.Products p
-    ON s.product_id = p.product_id
-WHERE p.product_id IS NULL;
+FROM dbo.OrderItems_Staging S
+LEFT JOIN dbo.Products P
+    ON S.product_id = P.product_id
+WHERE P.product_id IS NULL;
+
+
+/*==============================================================
+8. LOAD VALIDATED ORDER ITEMS
+==============================================================*/
 
 INSERT INTO dbo.OrderItems
 (
@@ -188,10 +189,32 @@ SELECT
     price
 FROM dbo.OrderItems_Staging;
 
-select *
-from OrderItems
 
-SELECT *
-FROM dbo.OrderItems
-WHERE order_id = 17
-  AND product_id = 35;
+/*==============================================================
+9. VERIFY IMPORT COUNTS
+==============================================================*/
+
+SELECT 'Customers' AS TableName, COUNT(*) AS RowCount
+FROM dbo.Customers
+
+UNION ALL
+
+SELECT 'Products', COUNT(*)
+FROM dbo.Products
+
+UNION ALL
+
+SELECT 'Orders', COUNT(*)
+FROM dbo.Orders
+
+UNION ALL
+
+SELECT 'OrderItems', COUNT(*)
+FROM dbo.OrderItems;
+
+
+/*==============================================================
+10. CLEAN UP STAGING TABLE
+==============================================================*/
+
+DROP TABLE dbo.OrderItems_Staging;
